@@ -1,0 +1,54 @@
+#!/bin/sh
+
+VERSION="1.1"
+
+# arg check and help text arg check
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    printf "\
+Usage: %s [OPTION] <username>\n\
+Synchronize a local account password across multiple systems.\n\
+\n\
+Options:\n\
+  -h,--help      Print this help text and exit\n\
+  -v,--version   Print version and exit\n\n" "$0"
+    exit 0
+fi
+
+# version arg check
+if [ "$1" = "-v" ] || [ "$1" = "--version" ]; then
+    printf "synclpw %s\n" "$VERSION"
+    exit 0
+fi
+
+# root check
+if [ ! "$(id -u)" = "0" ]; then
+    printf "ERROR: You are not root\n"
+    exit 1
+fi
+
+# get line from /etc/shadow
+SHADOWLINE=$(grep "$1" /etc/shadow)
+
+# verify we actually got something
+if [ -z "$SHADOWLINE" ]; then
+    printf "ERROR: user \"%s\" not found in /etc/shadow\n" "$1"
+    exit 1
+fi
+
+# verify we have a hosts file
+if [ ! -f hosts ]; then
+    printf "ERROR: hosts file not found\nYou must create a hosts file with a list of hosts to sync.\n"
+    exit 1
+fi
+
+# do the sync
+printf "Synchronizing password for user \"%s\"" "$1"
+grep -v '^ *#' <hosts | while IFS= read -r HOST; do
+    if ! ssh -q -o ConnectTimeout=10 "$HOST" "umask 0777; grep -v $1 /etc/shadow > /etc/shadow.new; echo '$SHADOWLINE' >> /etc/shadow.new; mv /etc/shadow /etc/shadow.bak; mv /etc/shadow.new /etc/shadow" </dev/null; then
+        printf "\nERROR: Host \"%s\" failed to sync, continuing" "$HOST"
+    else
+        printf "."
+    fi
+done
+printf "\nDone.\n"
+exit 0
